@@ -1,78 +1,52 @@
 <?php
     use fruithost\Accounting\Auth;
-
-    $uname			= explode(' ', shell_exec('uname -a'));
-	$uptime_array	= explode(" ", exec("cat /proc/uptime"));
-	$seconds		= round($uptime_array[0], 0);
-	$minutes		= $seconds / 60;
-	$hours			= $minutes / 60;
-	$days			= floor($hours / 24);
-	$hours			= sprintf('%02d', floor($hours - ($days * 24)));
-	$minutes		= sprintf('%02d', floor($minutes - ($days * 24 * 60) - ($hours * 60)));
+	use fruithost\Templating\TemplateFiles;
+	use fruithost\Hardware\OperatingSystem;
+	use fruithost\Hardware\PhysicalDrives;
+	use fruithost\Hardware\NetworkInterfaces;
+	use fruithost\Hardware\Memory;
+	use fruithost\Network\Response;
+	use fruithost\System\Utils;
 	
-	if($days == 0) {
-		$uptime = $hours . ":" .  $minutes . " (hh:mm)";
-	} elseif($days == 1) {
-		$uptime = $days . " day, " .  $hours . ":" .  $minutes . " (hh:mm)";
-	} else {
-		$uptime = $days . " days, " .  $hours . ":" .  $minutes . " (hh:mm)";
-	}
-
-	$memory		= [];
-	$meminfo	= file('/proc/meminfo', \FILE_SKIP_EMPTY_LINES);
-	
-	foreach($meminfo AS $line) {
-		preg_match('/(?<name>[a-zA-Z]+):([\s]+)(?<value>[0-9]+)\s(?<size>[a-zA-Z]+)$/Uis', $line, $matches);
-		
-		if(!empty($matches['name'])) {
-			switch(trim($matches['name'])) {
-				case 'MemTotal':	$memory['total'] = $matches['value'];		break;
-				case 'MemFree':		$memory['free'] = $matches['value'];		break;
-				case 'SwapTotal':	$memory['total_swap'] = $matches['value'];	break;
-				case 'SwapFree':	$memory['free_swap'] = $matches['value'];	break;
-				case 'Buffers':		$memory['buffer'] = $matches['value'];		break;
-				case 'Cached':		$memory['cache'] = $matches['value'];		break;
-				default: break;
-			}
+	if(isset($_POST['action']) && $_POST['action'] === 'command') {
+		if(!Auth::hasPermission('SERVER::MANAGE')) {
+			$this->assign('error', I18N::get('You have no permissions for this action!'));
+			exit();
 		}
-	}
 
-	$disks		= [];
-	$output		= shell_exec('df -T -h');
-	$search		= [ 'G', 'M' ];
-	$replace	= [ ' GB', ' MB' ];
+		Response::addHeader('Content-Type', 'text/plain; charset=UTF-8');
 	
-	foreach(explode(PHP_EOL, $output) AS $index => $line) {
-		if($index === 0 || empty(trim($line))) {
-			continue;
+		switch($_POST['command']) {
+			case 'get_live_usage':
+				print json_encode([
+					'total'			=> Utils::getFileSize(Memory::getTotal()),
+					'used'			=> Utils::getFileSize(Memory::getUsed()),
+					'cache'			=> Utils::getFileSize(Memory::getInCache()),
+					'assured'		=> Utils::getFileSize(Memory::getAssured()),
+					'swap'			=> Utils::getFileSize(Memory::getSwap()),
+					'percentage'	=> Memory::getPercentage()
+				]);
+			break;
 		}
-		
-		preg_match('/^(?P<filesystem>[\da-zA-Z\/]+)\s+(?P<type>[\da-zA-Z\/]+)\s+(?P<size>[0-9A-Z\.]+)\s+(?P<used>[0-9A-Z\.]+)\s+(?P<avail>[0-9A-Z\.]+)\s+(?P<percent>\d+%)\s+(?P<mount>[\da-zA-Z\/]+)$/', $line, $matches);
-		
-		$disks[] = [
-			'filesystem'	=> (isset($matches['filesystem']) ? $matches['filesystem'] : NULL),
-			'type'			=> (isset($matches['type']) ? $matches['type'] : NULL),
-			'size'			=> (isset($matches['size']) ? str_replace($search, $replace, $matches['size']) : NULL),
-			'used'			=> (isset($matches['used']) ? str_replace($search, $replace, $matches['used']) : NULL),
-			'avail'			=> (isset($matches['avail']) ? str_replace($search, $replace, $matches['avail']) : NULL),
-			'percent'		=> (isset($matches['percent']) ? $matches['percent'] : NULL),
-			'mount'			=> (isset($matches['mount']) ? $matches['mount'] : NULL)
-		];
+		exit();
 	}
 
-	$template->assign('hostname',		exec('hostname'));
-	$template->assign('time_system',	exec('date +\'%d %b %Y %T %Z\''));
-	$template->assign('time_php',		date('d M Y H:i:s T'));
-	$template->assign('os',				$uname[0]);
-	$template->assign('kernel',			$uname[2]);
-	$template->assign('uptime',			$uptime);
-	$template->assign('memory',			$memory);
-	$template->assign('disks',			$disks);
+	$template->assign('time_php',			date('d M Y H:i:s T'));
+	$template->assign('time_system',		OperatingSystem::getTime());
+	$template->assign('os',					OperatingSystem::getPrettyName());
+	$template->assign('kernel',				OperatingSystem::getKernel());
+	$template->assign('machine_type',		OperatingSystem::getMachineType());
+	$template->assign('uptime',				OperatingSystem::getUptime(true));
+	$template->assign('memory',				Memory::get());
+	$template->assign('network',			NetworkInterfaces::get());
+	$template->assign('disks',				PhysicalDrives::getDevices());
 	$template->assign('daemon',			[
 		'started'	=> strtotime($this->getCore()->getSettings('DAEMON_TIME_START', 0)),
-		'start'		=> date(Auth::getSettings('TIME_FORMAT', NULL, 'd.m.Y - H:i'), strtotime($this->getCore()->getSettings('DAEMON_TIME_START', 0))),
-		'end'		=> date(Auth::getSettings('TIME_FORMAT', NULL, 'd.m.Y - H:i'), strtotime($this->getCore()->getSettings('DAEMON_TIME_END', 0))),
+		'start'		=> date(Auth::getSettings('TIME_FORMAT', null, 'd.m.Y - H:i'), strtotime($this->getCore()->getSettings('DAEMON_TIME_START', 0))),
+		'end'		=> date(Auth::getSettings('TIME_FORMAT', null, 'd.m.Y - H:i'), strtotime($this->getCore()->getSettings('DAEMON_TIME_END', 0))),
 		'ended'		=> strtotime($this->getCore()->getSettings('DAEMON_TIME_END', 0)),
 		'time'		=> number_format($this->getCore()->getSettings('DAEMON_RUNNING_END', 0) - $this->getCore()->getSettings('DAEMON_RUNNING_START', 0), 4, ',', '.')
 	]);
+	
+	$template->getFiles()->addJavascript('statistics', $this->url('js/statistics.js'), '1.0.0', [ 'ajax' ], TemplateFiles::FOOTER);
 ?>

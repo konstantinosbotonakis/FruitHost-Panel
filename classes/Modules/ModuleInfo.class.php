@@ -105,12 +105,12 @@
 			
 			/* When the Icon is an URL or an embedded Image (Base64) */
 			if(preg_match('/^(http|https|data):/', $this->icon)) {
-				return sprintf('<img alt="Icon" src="%s" />', $this->icon);
+				return sprintf('<img alt="Icon" class="module-icon" src="%s" />', $this->icon);
 			}
 			
 			// @ToDo check if its an local file
 			
-			return sprintf('<i class="material-icons">%s</i>', $this->icon);
+			return sprintf('<i class="bi bi-%s"></i>', $this->icon);
 		}
 		
 		public function getDescription() : string {
